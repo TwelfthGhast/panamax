@@ -4,6 +4,8 @@ use askama::Template;
 use bytes::BytesMut;
 use futures_util::stream::TryStreamExt;
 use include_dir::{include_dir, Dir};
+use serde::Serialize;
+use serde_json::json;
 use thiserror::Error;
 use tokio::{
     fs::File,
@@ -53,6 +55,18 @@ pub enum ServeError {
     Warp(#[from] warp::http::Error),
     #[error("{0}")]
     Other(String),
+}
+
+#[derive(Serialize)]
+struct Crate {
+    name: String,
+    max_version: String,
+    description: String,
+}
+
+#[derive(Serialize)]
+struct Meta {
+    total: u32,
 }
 
 impl Reject for ServeError {}
@@ -186,6 +200,18 @@ pub async fn serve(path: PathBuf, socket_addr: SocketAddr, tls_paths: Option<Tls
     // Handle sparse index requests at /index/
     let sparse_index = warp::path("index").and(warp::fs::dir(path.join("crates.io-index")));
 
+    let api_search = warp::path!("crates" / "api" / "v1" / "crates").map(|| {
+        let data = vec![Crate {
+            name: "rand".to_string(),
+            max_version: "0.6.1".to_string(),
+            description: "Random number generators and other randomness functionality.".to_string(),
+        }];
+        let meta = Meta { total: 119 };
+        warp::reply::json(&json!({
+            "crates": &data,
+            "meta": &meta,
+        }))
+    });
     let routes = index
         .or(static_dir)
         .or(dist_dir)
@@ -193,7 +219,8 @@ pub async fn serve(path: PathBuf, socket_addr: SocketAddr, tls_paths: Option<Tls
         .or(crates_dir_native_format)
         .or(crates_dir_condensed_format)
         .or(sparse_index)
-        .or(git);
+        .or(git)
+        .or(api_search);
 
     match tls_paths {
         Some(TlsConfig {
