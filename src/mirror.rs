@@ -11,7 +11,7 @@ use crate::crates::is_new_crates_format;
 use crate::crates_index::rewrite_config_json;
 
 use crate::rustup::download_platform_list;
-use crate::serve::TlsConfig;
+use crate::serve::serve::TlsConfig;
 use crate::verify;
 
 #[derive(Error, Debug)]
@@ -306,7 +306,7 @@ pub async fn serve(
 
     match (cert_path, key_path) {
         (Some(cert_path), Some(key_path)) => {
-            crate::serve::serve(
+            crate::serve::serve::serve(
                 path,
                 socket_addr,
                 Some(TlsConfig {
@@ -316,7 +316,7 @@ pub async fn serve(
             )
             .await
         }
-        (None, None) => crate::serve::serve(path, socket_addr, None).await,
+        (None, None) => crate::serve::serve::serve(path, socket_addr, None).await,
         (Some(_), None) => {
             return Err(MirrorError::CmdLine(
                 "cert_path set but key_path not set.".to_string(),

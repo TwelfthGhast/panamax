@@ -4,6 +4,8 @@ use askama::Template;
 use bytes::BytesMut;
 use futures_util::stream::TryStreamExt;
 use include_dir::{include_dir, Dir};
+use serde::Serialize;
+use serde_json::json;
 use thiserror::Error;
 use tokio::{
     fs::File,
@@ -53,6 +55,18 @@ pub enum ServeError {
     Warp(#[from] warp::http::Error),
     #[error("{0}")]
     Other(String),
+}
+
+#[derive(Serialize)]
+struct Crate {
+    name: String,
+    max_version: String,
+    description: String,
+}
+
+#[derive(Serialize)]
+struct Meta {
+    total: u32,
 }
 
 impl Reject for ServeError {}
@@ -186,6 +200,33 @@ pub async fn serve(path: PathBuf, socket_addr: SocketAddr, tls_paths: Option<Tls
     // Handle sparse index requests at /index/
     let sparse_index = warp::path("index").and(warp::fs::dir(path.join("crates.io-index")));
 
+    // TODO: Is anything actually using the `api` key
+    // returned at http://panamax.internal/index/config.json
+    let api_search = warp::path!("crates" / "api" / "v1" / "crates")
+        .and(warp::query::<HashMap<String, String>>())
+        .map(|map: HashMap<String, String>| {
+            // TODO: we want to respond with non 200 here
+            let q: String = match map.get("q") {
+                Some(m) => m.clone(),
+                None => "no query".to_string(),
+            };
+
+            let per_page: u32 = match map.get("per_page") {
+                Some(p) => p.parse().unwrap(),
+                None => 10,
+            };
+            let data = vec![Crate {
+                name: q.to_string(),
+                max_version: "0.6.1".to_string(),
+                description: "Random number generators and other randomness functionality."
+                    .to_string(),
+            }];
+            let meta = Meta { total: per_page };
+            warp::reply::json(&json!({
+                "crates": &data,
+                "meta": &meta,
+            }))
+        });
     let routes = index
         .or(static_dir)
         .or(dist_dir)
@@ -193,7 +234,8 @@ pub async fn serve(path: PathBuf, socket_addr: SocketAddr, tls_paths: Option<Tls
         .or(crates_dir_native_format)
         .or(crates_dir_condensed_format)
         .or(sparse_index)
-        .or(git);
+        .or(git)
+        .or(api_search);
 
     match tls_paths {
         Some(TlsConfig {
