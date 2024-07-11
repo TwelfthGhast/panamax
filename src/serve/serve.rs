@@ -200,18 +200,33 @@ pub async fn serve(path: PathBuf, socket_addr: SocketAddr, tls_paths: Option<Tls
     // Handle sparse index requests at /index/
     let sparse_index = warp::path("index").and(warp::fs::dir(path.join("crates.io-index")));
 
-    let api_search = warp::path!("crates" / "api" / "v1" / "crates").map(|| {
-        let data = vec![Crate {
-            name: "rand".to_string(),
-            max_version: "0.6.1".to_string(),
-            description: "Random number generators and other randomness functionality.".to_string(),
-        }];
-        let meta = Meta { total: 119 };
-        warp::reply::json(&json!({
-            "crates": &data,
-            "meta": &meta,
-        }))
-    });
+    // TODO: Is anything actually using the `api` key
+    // returned at http://panamax.internal/index/config.json
+    let api_search = warp::path!("crates" / "api" / "v1" / "crates")
+        .and(warp::query::<HashMap<String, String>>())
+        .map(|map: HashMap<String, String>| {
+            // TODO: we want to respond with non 200 here
+            let q: String = match map.get("q") {
+                Some(m) => m.clone(),
+                None => "no query".to_string(),
+            };
+
+            let per_page: u32 = match map.get("per_page") {
+                Some(p) => p.parse().unwrap(),
+                None => 10,
+            };
+            let data = vec![Crate {
+                name: q.to_string(),
+                max_version: "0.6.1".to_string(),
+                description: "Random number generators and other randomness functionality."
+                    .to_string(),
+            }];
+            let meta = Meta { total: per_page };
+            warp::reply::json(&json!({
+                "crates": &data,
+                "meta": &meta,
+            }))
+        });
     let routes = index
         .or(static_dir)
         .or(dist_dir)
